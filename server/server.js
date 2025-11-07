@@ -1,4 +1,10 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env.server') });
+
+// Debug environment variables
+console.log('Environment check:');
+console.log('MONGODB_URI:', process.env.MONGODB_URI);
+console.log('SESSION_SECRET:', process.env.SESSION_SECRET ? 'Set' : 'Not set');
 const express = require('express');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
