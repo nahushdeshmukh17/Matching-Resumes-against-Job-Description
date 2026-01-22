@@ -16,8 +16,14 @@ class ApiService {
       ...options,
     };
 
-    if (config.body && typeof config.body === 'object') {
+    // Don't stringify FormData objects
+    if (config.body && typeof config.body === 'object' && !(config.body instanceof FormData)) {
       config.body = JSON.stringify(config.body);
+    }
+    
+    // Remove Content-Type header for FormData to let browser set it
+    if (config.body instanceof FormData) {
+      delete config.headers['Content-Type'];
     }
 
     try {
@@ -58,6 +64,29 @@ class ApiService {
 
   async getProfile() {
     return this.request('/auth/profile');
+  }
+
+  // Resume extraction
+  async extractResumeText(file) {
+    const formData = new FormData();
+    formData.append('resume', file);
+    
+    return this.request('/resume/extract', {
+      method: 'POST',
+      body: formData
+    });
+  }
+
+  // Application methods
+  async applyToJob(jobId, resumeText, resumeFileName) {
+    return this.request('/applications', {
+      method: 'POST',
+      body: { jobId, resumeText, resumeFileName },
+    });
+  }
+
+  async getMyApplications() {
+    return this.request('/applications/my-applications');
   }
 
   // Health check

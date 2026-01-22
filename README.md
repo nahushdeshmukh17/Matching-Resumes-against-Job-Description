@@ -168,5 +168,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - UI/UX designed for optimal user experience
 
 ---
-
-**Made with 💻 and ☕ by Samarth**

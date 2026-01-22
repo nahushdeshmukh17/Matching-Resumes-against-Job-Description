@@ -3,6 +3,7 @@ const { body, validationResult } = require('express-validator');
 const Application = require('../models/Application');
 const Job = require('../models/Job');
 const { requireAuth } = require('../middleware/auth');
+const nlpMatcher = require('../utils/nlpMatcher');
 
 const router = express.Router();
 
@@ -56,8 +57,8 @@ router.post('/',
         });
       }
 
-      // Calculate basic match score (simple keyword matching for now)
-      const matchScore = calculateMatchScore(resumeText, job);
+      // Calculate advanced match score using NLP algorithms
+      const matchScore = calculateAdvancedMatchScore(resumeText, job);
 
       const application = new Application({
         applicantId: req.session.userId,
@@ -115,43 +116,91 @@ router.get('/my-applications', requireAuth, async (req, res) => {
   }
 });
 
-// Simple matching algorithm
-function calculateMatchScore(resumeText, job) {
+// Advanced NLP-based matching algorithm
+function calculateAdvancedMatchScore(resumeText, job) {
+  try {
+    // Combine job description and skills for comprehensive matching
+    const jobText = `${job.description} ${job.skills.join(' ')} ${job.requirements || ''}`;
+    
+    // Use NLP matcher for advanced analysis
+    const nlpResult = nlpMatcher.calculateAdvancedMatch(resumeText, jobText);
+    
+    // Legacy skills matching for backward compatibility
+    const legacySkillsScore = calculateLegacySkillsMatch(resumeText, job.skills);
+    
+    // Combine NLP results with legacy scoring
+    return {
+      overall: nlpResult.overallMatch,
+      skills: Math.max(legacySkillsScore, nlpResult.skillsMatch),
+      experience: extractExperienceScore(resumeText),
+      education: extractEducationScore(resumeText),
+      keywords: nlpResult.tfidfSimilarity,
+      nlpAnalysis: {
+        tfidfSimilarity: nlpResult.tfidfSimilarity,
+        stringSimilarity: nlpResult.stringSimilarity,
+        matchedTerms: nlpResult.matchedTerms,
+        analysis: nlpResult.analysis
+      }
+    };
+  } catch (error) {
+    console.error('NLP matching failed, falling back to simple matching:', error);
+    return calculateSimpleMatchScore(resumeText, job);
+  }
+}
+
+// Legacy skills matching for comparison
+function calculateLegacySkillsMatch(resumeText, jobSkills) {
+  const resume = resumeText.toLowerCase();
+  const skills = jobSkills.map(skill => skill.toLowerCase());
+  
+  let matches = 0;
+  skills.forEach(skill => {
+    if (resume.includes(skill)) matches++;
+  });
+  
+  return skills.length > 0 ? Math.round((matches / skills.length) * 100) : 0;
+}
+
+// Extract experience score from resume
+function extractExperienceScore(resumeText) {
+  const text = resumeText.toLowerCase();
+  const experienceKeywords = ['experience', 'years', 'worked', 'employed', 'position'];
+  const matches = experienceKeywords.filter(keyword => text.includes(keyword)).length;
+  return Math.min(60 + (matches * 10), 100);
+}
+
+// Extract education score from resume
+function extractEducationScore(resumeText) {
+  const text = resumeText.toLowerCase();
+  const educationKeywords = ['degree', 'university', 'college', 'bachelor', 'master', 'phd', 'education'];
+  const matches = educationKeywords.filter(keyword => text.includes(keyword)).length;
+  return Math.min(60 + (matches * 8), 100);
+}
+
+// Fallback simple matching (in case NLP fails)
+function calculateSimpleMatchScore(resumeText, job) {
   const resume = resumeText.toLowerCase();
   const jobDesc = job.description.toLowerCase();
   const jobSkills = job.skills.map(skill => skill.toLowerCase());
   
-  // Skills matching
   let skillMatches = 0;
   jobSkills.forEach(skill => {
-    if (resume.includes(skill)) {
-      skillMatches++;
-    }
+    if (resume.includes(skill)) skillMatches++;
   });
   const skillsScore = jobSkills.length > 0 ? (skillMatches / jobSkills.length) * 100 : 0;
   
-  // Keyword matching
   const jobKeywords = jobDesc.split(' ').filter(word => word.length > 3);
   let keywordMatches = 0;
   jobKeywords.forEach(keyword => {
-    if (resume.includes(keyword)) {
-      keywordMatches++;
-    }
+    if (resume.includes(keyword)) keywordMatches++;
   });
   const keywordsScore = jobKeywords.length > 0 ? (keywordMatches / jobKeywords.length) * 100 : 0;
   
-  // Experience matching (basic)
-  const experienceScore = resume.includes('experience') || resume.includes('years') ? 80 : 60;
+  const experienceScore = resume.includes('experience') ? 80 : 60;
+  const educationScore = resume.includes('degree') ? 85 : 70;
   
-  // Education matching (basic)
-  const educationScore = resume.includes('degree') || resume.includes('university') || resume.includes('college') ? 85 : 70;
-  
-  // Overall score (weighted average)
   const overall = Math.round(
-    (skillsScore * 0.4) + 
-    (keywordsScore * 0.3) + 
-    (experienceScore * 0.2) + 
-    (educationScore * 0.1)
+    (skillsScore * 0.4) + (keywordsScore * 0.3) + (experienceScore * 0.2) + (educationScore * 0.1)
   );
   
   return {

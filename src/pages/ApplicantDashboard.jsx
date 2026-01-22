@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import JobCard from '../components/JobCard';
 import MatchAnalysis from '../components/MatchAnalysis';
 import ResumeRecommendations from '../components/ResumeRecommendations';
+import apiService from '../services/api';
 
 const ApplicantDashboard = () => {
   const [uploadedResume, setUploadedResume] = useState(() => {
@@ -48,39 +49,148 @@ const ApplicantDashboard = () => {
     }
   };
 
-  const handleResumeUpload = (event) => {
+  const handleResumeUpload = async (event) => {
     const file = event.target.files[0];
-    if (file && (file.type === 'application/pdf' || file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')) {
-      const fileData = {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        lastModified: file.lastModified
-      };
-      setUploadedResume(fileData);
-      localStorage.setItem('uploadedResume', JSON.stringify(fileData));
+    const allowedTypes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'image/jpeg',
+      'image/jpg',
+      'image/png'
+    ];
+    
+    if (file && allowedTypes.includes(file.type)) {
+      try {
+        // Extract text from resume
+        const response = await apiService.extractResumeText(file);
+        
+        if (response.success) {
+          const fileData = {
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            lastModified: file.lastModified,
+            extractedText: response.text
+          };
+          
+          setUploadedResume(fileData);
+          localStorage.setItem('uploadedResume', JSON.stringify(fileData));
+          
+          alert('Resume uploaded and processed successfully!');
+        }
+      } catch (error) {
+        console.error('Resume processing error:', error);
+        console.error('Error details:', error.message);
+        console.error('Error stack:', error.stack);
+        alert('Error processing resume: ' + error.message);
+      }
     } else {
-      alert('Please upload a PDF or DOCX file');
+      alert('Please upload a PDF, DOCX, or image file');
     }
   };
 
-  const handleJobApply = (job) => {
+  const handleJobApply = async (job) => {
     if (!uploadedResume) {
       alert('Please upload your resume first');
       return;
     }
 
-    setSelectedJob(job);
-    localStorage.setItem('selectedJob', JSON.stringify(job));
+    if (!uploadedResume.extractedText) {
+      alert('Resume text not extracted. Please re-upload your resume.');
+      return;
+    }
+
+    try {
+      setSelectedJob(job);
+      localStorage.setItem('selectedJob', JSON.stringify(job));
+      
+      // Apply to job with extracted text
+      const response = await apiService.applyToJob(job.id, uploadedResume.extractedText, uploadedResume.name);
+      
+      if (response.success) {
+        // Set match data from response
+        const matchData = {
+          overallMatch: response.application.matchScore.overall,
+          breakdown: {
+            skills: {
+              score: response.application.matchScore.skills,
+              details: { matched: [], missing: [] }
+            },
+            experience: {
+              score: response.application.matchScore.experience,
+              details: { candidateYears: 0, requiredYears: 0 }
+            },
+            education: {
+              score: response.application.matchScore.education,
+              details: { match: 'Education analysis completed' }
+            },
+            keywords: {
+              score: response.application.matchScore.keywords,
+              details: {}
+            }
+          }
+        };
+        
+        setMatchData(matchData);
+        localStorage.setItem('matchData', JSON.stringify(matchData));
+        
+        // Generate recommendations based on match score
+        const recommendations = generateRecommendations(response.application.matchScore);
+        setRecommendations(recommendations);
+        localStorage.setItem('recommendations', JSON.stringify(recommendations));
+        
+        alert(`Application submitted successfully! Match score: ${response.application.matchScore.overall}%`);
+      }
+    } catch (error) {
+      if (error.message.includes('already applied')) {
+        alert('You have already applied to this job!');
+      } else {
+        console.error('Application error:', error);
+        alert('Error submitting application. Please try again.');
+      }
+    }
+  };
+  
+  const generateRecommendations = (matchScore) => {
+    const recommendations = [];
     
-    // Apply to job - this will be implemented when resume processing is added
-    alert('Application functionality will be available once resume processing is implemented.');
+    if (matchScore.skills < 70) {
+      recommendations.push({
+        type: 'skills',
+        title: 'Improve Technical Skills',
+        description: 'Consider learning the key technologies mentioned in the job description.',
+        priority: 'high'
+      });
+    }
     
-    // Clear previous data
-    setMatchData(null);
-    setRecommendations(null);
-    localStorage.removeItem('matchData');
-    localStorage.removeItem('recommendations');
+    if (matchScore.experience < 60) {
+      recommendations.push({
+        type: 'experience',
+        title: 'Highlight Relevant Experience',
+        description: 'Emphasize projects and work experience that align with the job requirements.',
+        priority: 'medium'
+      });
+    }
+    
+    if (matchScore.keywords < 50) {
+      recommendations.push({
+        type: 'keywords',
+        title: 'Optimize Resume Keywords',
+        description: 'Include more industry-specific keywords from the job description.',
+        priority: 'medium'
+      });
+    }
+    
+    if (recommendations.length === 0) {
+      recommendations.push({
+        type: 'general',
+        title: 'Great Match!',
+        description: 'Your resume shows strong alignment with this position. Consider applying to similar roles.',
+        priority: 'low'
+      });
+    }
+    
+    return recommendations;
   };
 
   return (
@@ -104,7 +214,7 @@ const ApplicantDashboard = () => {
               <div className="border-2 border-dashed border-gray-600 rounded-xl p-8 text-center bg-gray-700/50 hover:bg-gray-700 transition-colors duration-300">
                 <input
                   type="file"
-                  accept=".pdf,.docx"
+                  accept=".pdf,.docx,.jpg,.jpeg,.png"
                   onChange={handleResumeUpload}
                   className="hidden"
                   id="resume-upload"
@@ -115,7 +225,7 @@ const ApplicantDashboard = () => {
                 >
                   Choose Resume
                 </label>
-                <p className="text-gray-400 mt-3 font-medium">PDF or DOCX files only</p>
+                <p className="text-gray-400 mt-3 font-medium">PDF, DOCX, or image files</p>
               </div>
               {uploadedResume && (
                 <div className="mt-4 p-4 bg-green-900/30 border border-green-700 rounded-xl">

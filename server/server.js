@@ -58,6 +58,7 @@ app.use(session({
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/jobs', require('./routes/jobs'));
 app.use('/api/applications', require('./routes/applications'));
+app.use('/api/resume', require('./routes/resume'));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
